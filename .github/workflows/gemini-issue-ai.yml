@@ -1,0 +1,100 @@
+name: Gemini AI 手动触发回复Issue
+on:
+  # 触发条件1：新建Issue（可选保留，也可删除仅保留评论触发）
+  issues:
+    types: [opened]
+  # 触发条件2：新增Issue评论（核心，检测@issue_bot_cn）
+  issue_comment:
+    types: [created]
+
+jobs:
+  gemini-ai-reply:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write  # 评论Issue权限
+      contents: read # 读取仓库内容权限
+    # 仅满足以下条件时执行：评论含@issue_bot_cn 或 新建Issue（可选）
+    if: |
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@issue_bot_cn')) ||
+      (github.event_name == 'issues' && github.event.action == 'opened')
+    steps:
+      - name: 拉取仓库代码（读取上下文）
+        uses: actions/checkout@v4
+
+      - name: 获取历史Issue作为上下文
+        id: get_issues
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // 获取最近30条已关闭的Issue（中文优化，精简内容）
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'closed',
+              per_page: 30
+            });
+            // 精简上下文，保留标题+核心内容（避免超长）
+            const issueContext = issues.data.map(issue =>
+              `Issue #${issue.number}：${issue.title}\n核心内容：${issue.body ? issue.body.substring(0, 300) : '无'}`
+            ).join('\n\n');
+            core.setOutput('context', issueContext);
+
+      - name: 提取触发评论的问题（仅手动触发时）
+        id: get_comment_content
+        if: github.event_name == 'issue_comment'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // 过滤掉@issue_bot_cn，仅保留实际问题内容
+            const commentBody = github.event.comment.body.replace(/@issue_bot_cn/g, '').trim();
+            core.setOutput('question', commentBody);
+
+      - name: 调用Gemini免费API生成回复
+        id: gemini_reply
+        uses: fjogeleit/http-request-action@v1
+        with:
+          url: 'https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash-latest:generateContent?key=${{ secrets.GEMINI_API_KEY }}'
+          method: 'POST'
+          headers: '{"Content-Type":"application/json"}'
+          data: |
+            {
+              "contents": [
+                {
+                  "parts": [
+                    {
+                      "text": "你是该GitHub仓库的AI助手，基于以下历史Issue上下文和官方文档参考，简洁、准确地回复问题（仅用中文，避免冗余）：\n\n【官方文档参考】\n${{ 'https://ais-bench-benchmark-rf.readthedocs.io/' }} \n\n【历史Issue上下文】\n${{ steps.get_issues.outputs.context }}\n\n【待回复的问题】\n${{ github.event_name == 'issue_comment' ? steps.get_comment_content.outputs.question : format('标题：{0}\n内容：{1}', github.event.issue.title, github.event.issue.body ? github.event.issue.body.substring(0, 500) : '无') }}\n\n【回复要求】\n1. 只回答和仓库相关的问题，无关问题请提示“该问题与仓库无关，建议补充相关信息”；\n2. 上下文无相关信息时，提示“暂未找到相关解答，可参考仓库官方文档（https://ais-bench-benchmark-rf.readthedocs.io/）、README或联系维护者”；\n3. 回复控制在500字以内，语气友好。"
+                    }
+                  ]
+                }
+              ],
+              "generationConfig": {
+                "temperature": 0.3,
+                "maxOutputTokens": 500
+              }
+            }
+
+      - name: 发布AI回复到Issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            try {
+              // 解析Gemini回复
+              const response = JSON.parse('${{ steps.gemini_reply.outputs.response }}');
+              const aiReply = response.candidates[0].content.parts[0].text.trim();
+
+              // 发布评论（以GITHUB_TOKEN运行，不受交互限制）
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: ${{ github.event_name == 'issue_comment' ? github.event.issue.number : github.event.issue.number }},
+                body: `🤖 Gemini AI 回复：\n\n${aiReply}`
+              });
+            } catch (e) {
+              // 兜底回复（API调用失败时）
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: ${{ github.event_name == 'issue_comment' ? github.event.issue.number : github.event.issue.number }},
+                body: "🤖 抱歉，暂时无法生成回复～可参考仓库官方文档（https://ais-bench-benchmark-rf.readthedocs.io/）或历史Issue，或稍后重试。"
+              });
+            }
