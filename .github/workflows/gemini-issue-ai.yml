@@ -122,11 +122,12 @@ jobs:
                       {
                         parts: [
                           {
-                            text: `你是该GitHub仓库的AI助手，基于以下提供的链接参考和你已有的知识，简洁、准确地回复问题（仅用中文，避免冗余）：\n\n【官方文档链接】\nhttps://ais-bench-benchmark-rf.readthedocs.io/ \n\n【历史Issue链接】\nhttps://github.com/${context.repo.owner}/${context.repo.repo}/issues?q=is%3Aissue%20state%3Aclosed \n\n【当前Issue链接】\nhttps://github.com/${context.repo.owner}/${context.repo.repo}/issues/${issueNumber} \n\n【待回复的问题】\n${questionToAnswer}\n\n【重要提示】\n- 你无法实时访问互联网或直接打开链接获取内容\n- 请基于你已了解的该仓库相关知识和通用技术知识进行回复\n- 如果无法确定答案，请明确说明\n\n【回复要求】\n1. 只回答和仓库相关的问题，无关问题请提示"该问题与仓库无关，建议补充相关信息"；\n2. 在现有知识中未找到相关信息时，提示"暂未找到相关解答，可参考仓库官方文档（https://ais-bench-benchmark-rf.readthedocs.io/）、README或联系维护者"；\n3. 回复控制在500字以内，语气友好。`
+                            text: `你是该GitHub仓库的AI助手，读取以下提供的链接参考和你已有的知识，简洁、准确地回复当前issue提及的问题（仅用中文，避免冗余）：\n\n【官方文档链接】\nhttps://ais-bench-benchmark-rf.readthedocs.io/ \n\n【历史Issue链接】\nhttps://github.com/${context.repo.owner}/${context.repo.repo}/issues?q=is%3Aissue%20state%3Aclosed \n\n【当前Issue链接】\nhttps://github.com/${context.repo.owner}/${context.repo.repo}/issues/${issueNumber} \n\n【回复要求】\n1. 只回答和仓库相关的问题，无关问题请提示"该问题与仓库无关，建议补充相关信息"；\n2. 在现有知识中未找到相关信息时，提示"暂未找到相关解答，可参考仓库官方文档或联系维护者"；\n3. 回复控制在1000字以内，语气友好。`
                           }
                         ]
                       }
                     ],
+                    "tools": [{"name": "google_search"},{"name": "url_context"}],
                     generationConfig: {
                       temperature: 0.3,
                       maxOutputTokens: 1000
