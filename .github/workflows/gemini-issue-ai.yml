@@ -21,71 +21,51 @@ jobs:
       - name: 拉取仓库代码（读取上下文）
         uses: actions/checkout@v4
 
-      - name: 获取历史Issue作为上下文
-        id: get_issues
+      - name: 生成AI回复并发布到Issue
         uses: actions/github-script@v7
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         with:
           script: |
-            // 获取最近30条已关闭的Issue（中文优化，精简内容）
-            const issues = await github.rest.issues.listForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              state: 'closed',
-              per_page: 30
-            });
-            // 精简上下文，保留标题+核心内容（避免超长）
-            const issueContext = issues.data.map(issue =>
-              `Issue #${issue.number}：${issue.title}\n核心内容：${issue.body ? issue.body.substring(0, 300) : '无'}`
-            ).join('\n\n');
-            core.setOutput('context', issueContext);
-
-      - name: 提取触发评论的问题（仅手动触发时）
-        id: get_comment_content
-        if: github.event_name == 'issue_comment'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            // 过滤掉@issue_bot_cn，仅保留实际问题内容
-            const commentBody = github.event.comment.body.replace(/@issue_bot_cn/g, '').trim();
-            core.setOutput('question', commentBody);
-
-      - name: 准备待回复问题（针对Issue打开事件）
-        id: get_issue_content
-        if: github.event_name == 'issues'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const issueTitle = github.event.issue.title;
-            const issueBody = github.event.issue.body || '无';
-            const truncatedBody = issueBody.length > 500 ? issueBody.substring(0, 500) : issueBody;
-            const issueContent = `标题：${issueTitle}\n内容：${truncatedBody}`;
-            core.setOutput('issue_content', issueContent);
-
-      - name: 调用Gemini免费API生成回复
-        id: gemini_reply
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const { Octokit } = require('octokit');
             const fetch = require('node-fetch');
 
-            // 获取必要的上下文
-            const issueContext = '${{ steps.get_issues.outputs.context }}';
-            const commentQuestion = '${{ steps.get_comment_content.outputs.question }}';
-            const issueContent = '${{ steps.get_issue_content.outputs.issue_content }}';
-            const geminiApiKey = '${{ secrets.GEMINI_API_KEY }}';
-            const eventName = '${{ github.event_name }}';
-
-            // 确定待回复的问题
+            // 获取必要的上下文信息
+            let issueNumber;
             let questionToAnswer;
-            if (eventName === 'issue_comment') {
-              questionToAnswer = commentQuestion;
+
+            // 根据事件类型确定要处理的内容
+            if (context.eventName === 'issue_comment') {
+              issueNumber = context.issue.number;
+              // 过滤掉@issue_bot_cn，仅保留实际问题内容
+              const commentBody = context.payload.comment.body.replace(/@issue_bot_cn/g, '').trim();
+              questionToAnswer = commentBody;
+            } else if (context.eventName === 'issues') {
+              issueNumber = context.issue.number;
+              const issueTitle = context.payload.issue.title;
+              const issueBody = context.payload.issue.body || '无';
+              const truncatedBody = issueBody.length > 500 ? issueBody.substring(0, 500) : issueBody;
+              questionToAnswer = `标题：${issueTitle}\n内容：${truncatedBody}`;
             } else {
-              questionToAnswer = issueContent;
+              console.log('未知事件类型，跳过处理');
+              return;
             }
 
             try {
+              // 获取历史Issue作为上下文（最近30条已关闭的Issue）
+              const issues = await github.rest.issues.listForRepo({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'closed',
+                per_page: 30
+              });
+
+              // 精简上下文，保留标题+核心内容（避免超长）
+              const issueContext = issues.data.map(issue =>
+                `Issue #${issue.number}：${issue.title}\n核心内容：${issue.body ? issue.body.substring(0, 300) : '无'}`
+              ).join('\n\n');
+
               // 调用Gemini API
+              const geminiApiKey = process.env.GEMINI_API_KEY;
               const response = await fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash-latest:generateContent?key=${geminiApiKey}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -106,41 +86,23 @@ jobs:
                 })
               });
 
+              if (!response.ok) {
+                throw new Error(`API调用失败: ${response.status} ${response.statusText}`);
+              }
+
               const data = await response.json();
               const aiReply = data.candidates[0].content.parts[0].text.trim();
-              core.setOutput('ai_reply', aiReply);
+
+              // 发布AI回复到Issue
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                body: `🤖 Gemini AI 回复：\n\n${aiReply}`
+              });
             } catch (error) {
-              console.error('Gemini API调用失败:', error);
-              core.setOutput('ai_reply', '');
-            }
-
-      - name: 发布AI回复到Issue
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const aiReply = '${{ steps.gemini_reply.outputs.ai_reply }}';
-            const issueNumber = ${{ github.event.issue.number }};
-
-            try {
-              if (aiReply) {
-                // 发布正常AI回复
-                await github.rest.issues.createComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: issueNumber,
-                  body: `🤖 Gemini AI 回复：\n\n${aiReply}`
-                });
-              } else {
-                // 兜底回复（API调用失败时）
-                await github.rest.issues.createComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: issueNumber,
-                  body: "🤖 抱歉，暂时无法生成回复～可参考仓库官方文档（https://ais-bench-benchmark-rf.readthedocs.io/）或历史Issue，或稍后重试。"
-                });
-              }
-            } catch (e) {
-              console.error('发布评论失败:', e);
+              console.error('处理失败:', error);
+              // 兜底回复（API调用失败时）
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
