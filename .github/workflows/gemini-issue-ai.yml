@@ -1,6 +1,6 @@
-name: Gemini AI 手动触发回复Issue
+name: 提供AI提问提示词
 on:
-  # 触发条件1：新建Issue（可选保留，也可删除仅保留评论触发）
+  # 触发条件1：新建Issue（可选保留）
   issues:
     types: [opened]
   # 触发条件2：新增Issue评论（核心，检测@issue_bot_cn）
@@ -8,167 +8,59 @@ on:
     types: [created]
 
 jobs:
-  gemini-ai-reply:
+  provide-ai-prompt:
     runs-on: ubuntu-latest
     permissions:
-      issues: write  # 评论Issue和读取Issue权限
+      issues: write  # 评论Issue权限
       contents: read # 读取仓库内容权限
     # 仅满足以下条件时执行：评论含@issue_bot_cn 或 新建Issue（可选）
     if: |
       (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@issue_bot_cn')) ||
       (github.event_name == 'issues' && github.event.action == 'opened')
     steps:
-      - name: 拉取仓库代码（读取上下文）
+      - name: 拉取仓库代码
         uses: actions/checkout@v4
 
-      - name: 生成AI回复并发布到Issue
+      - name: 获取历史Issue作为参考
+        id: get_issues
         uses: actions/github-script@v7
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         with:
           script: |
-            const https = require('https');
+            // 获取最近30条已关闭的Issue
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'closed',
+              per_page: 30
+            });
+            // 生成历史Issue链接列表
+            const issueLinks = issues.data.map(issue =>
+              `#${issue.number}：${issue.title} - https://github.com/${context.repo.owner}/${context.repo.repo}/issues/${issue.number}`
+            ).join('\n');
+            core.setOutput('issue_links', issueLinks);
 
-            // 辅助函数：发起 HTTPS POST 请求
-            function postHttpsRequest(url, data) {
-              return new Promise((resolve, reject) => {
-                const urlObj = new URL(url);
-                const options = {
-                  hostname: urlObj.hostname,
-                  path: urlObj.pathname + urlObj.search,
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json'
-                  }
-                };
+      - name: 生成并发布AI提问提示词
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // 获取当前Issue信息
+            const issueNumber = ${{ github.event_name == 'issue_comment' ? github.event.issue.number : github.event.issue.number }};
+            const issueTitle = ${{ github.event_name == 'issue_comment' ? `github.event.issue.title` : `github.event.issue.title` }};
+            const issueBody = ${{ github.event_name == 'issue_comment' ? `github.event.issue.body` : `github.event.issue.body` }};
+            const issueLink = `https://github.com/${context.repo.owner}/${context.repo.repo}/issues/${issueNumber}`;
+            const docLink = 'https://ais-bench-benchmark-rf.readthedocs.io/';
+            const historicalIssues = `${{ steps.get_issues.outputs.issue_links }}`;
 
-                console.log('发起请求到:', urlObj.hostname + urlObj.pathname);
-                console.log('请求数据:', JSON.stringify(data).substring(0, 200) + '...');
+            // 生成提示词
+            const prompt = `你现在需要解决一个关于 AISBench/benchmark 仓库的issue，请基于以下信息分析并提供解决方案：\n\n【当前问题】\nIssue 链接：${issueLink}\n标题：${github.event.issue.title}\n内容：${github.event.issue.body ? github.event.issue.body.substring(0, 1000) : '无'}\n\n【历史相关Issue参考】\n${historicalIssues}\n\n【官方文档】\n${docLink}\n\n请结合以上所有信息，提供完整的解决方案或建议。`;
 
-                const req = https.request(options, (res) => {
-                  console.log('响应状态码:', res.statusCode);
-                  console.log('响应头:', res.headers);
-                  let body = '';
-                  res.on('data', (chunk) => {
-                    body += chunk;
-                  });
-                  res.on('end', () => {
-                    console.log('响应内容:', body);
-                    try {
-                      const result = JSON.parse(body);
-                      resolve({ ok: res.statusCode === 200, status: res.statusCode, statusText: res.statusMessage, data: result, fullBody: body });
-                    } catch (error) {
-                      console.log('解析响应失败:', error);
-                      resolve({ ok: res.statusCode === 200, status: res.statusCode, statusText: res.statusMessage, data: null, fullBody: body });
-                    }
-                  });
-                });
+            // 生成AI助手链接列表
+            const aiAgents = `\n\n常用AI助手链接：\n- 豆包：https://www.doubao.com/\n- ChatGPT：https://chat.openai.com/\n- 文心一言：https://yiyan.baidu.com/\n- 通义千问：https://tongyi.aliyun.com/`;
 
-                req.on('error', (error) => {
-                  console.error('请求错误:', error);
-                  reject(error);
-                });
-
-                req.write(JSON.stringify(data));
-                req.end();
-              });
-            }
-
-            // 获取必要的上下文信息
-            let issueNumber;
-            let questionToAnswer;
-
-            // 根据事件类型确定要处理的内容
-            if (context.eventName === 'issue_comment') {
-              issueNumber = context.issue.number;
-              // 过滤掉@issue_bot_cn，仅保留实际问题内容
-              const commentBody = context.payload.comment.body.replace(/@issue_bot_cn/g, '').trim();
-              questionToAnswer = commentBody;
-            } else if (context.eventName === 'issues') {
-              issueNumber = context.issue.number;
-              const issueTitle = context.payload.issue.title;
-              const issueBody = context.payload.issue.body || '无';
-              const truncatedBody = issueBody.length > 500 ? issueBody.substring(0, 500) : issueBody;
-              questionToAnswer = `标题：${issueTitle}\n内容：${truncatedBody}`;
-            } else {
-              console.log('未知事件类型，跳过处理');
-              return;
-            }
-
-            try {
-              // 调用Gemini API - 使用最新免费可用的模型
-              console.log('开始调用Gemini API...');
-              const geminiApiKey = process.env.GEMINI_API_KEY;
-
-              // 首先尝试最新的免费模型列表
-              const availableModels = [
-                'gemini-1.5-flash-latest',
-              ];
-
-              let aiReply = null;
-              let apiSuccess = false;
-              let usedModel = null;
-
-              for (const modelName of availableModels) {
-                try {
-                  const apiUrl = `https://generativelanguage.googleapis.com/v1/models/${modelName}:generateContent?key=${geminiApiKey}`;
-                  console.log(`尝试使用模型: ${modelName}`);
-
-                  const apiData = {
-                    contents: [
-                      {
-                        parts: [
-                          {
-                            text: `你是该GitHub仓库的AI助手，读取以下提供的链接参考和你已有的知识，简洁、准确地回复当前issue提及的问题（仅用中文，避免冗余）：\n\n【官方文档链接】\nhttps://ais-bench-benchmark-rf.readthedocs.io/ \n\n【历史Issue链接】\nhttps://github.com/${context.repo.owner}/${context.repo.repo}/issues?q=is%3Aissue%20state%3Aclosed \n\n【当前Issue链接】\nhttps://github.com/${context.repo.owner}/${context.repo.repo}/issues/${issueNumber} \n\n【回复要求】\n1. 只回答和仓库相关的问题，无关问题请提示"该问题与仓库无关，建议补充相关信息"；\n2. 在现有知识中未找到相关信息时，提示"暂未找到相关解答，可参考仓库官方文档或联系维护者"；\n3. 回复控制在1000字以内，语气友好。`
-                          }
-                        ]
-                      }
-                    ],
-                    "tools": [{"name": "google_search"}, {"name": "url_context"}],
-                    generationConfig: {
-                      temperature: 0.3,
-                      maxOutputTokens: 1000
-                    }
-                  };
-
-                  const response = await postHttpsRequest(apiUrl, apiData);
-
-                  if (response.ok && response.data && response.data.candidates) {
-                    console.log(`成功使用模型 ${modelName} 调用API`);
-                    aiReply = response.data.candidates[0].content.parts[0].text.trim();
-                    apiSuccess = true;
-                    usedModel = modelName;
-                    break;
-                  } else {
-                    console.log(`模型 ${modelName} 调用失败:`, response.status, response.fullBody);
-                  }
-                } catch (modelError) {
-                  console.log(`模型 ${modelName} 调用异常:`, modelError.message);
-                }
-              }
-
-              if (!apiSuccess) {
-                throw new Error('所有可用模型调用均失败');
-              }
-
-              console.log(`使用模型 ${usedModel} 生成了AI回复`);
-
-              // 发布AI回复到Issue
-              console.log('开始发布评论到Issue...');
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: issueNumber,
-                body: `🤖 Gemini AI 回复：\n\n${aiReply}`
-              });
-              console.log('评论发布成功');
-            } catch (error) {
-              console.error('处理失败:', error);
-              // 兜底回复（API调用失败时）
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: issueNumber,
-                body: "🤖 抱歉，暂时无法生成回复～\n可在工具官方文档：https://ais-bench-benchmark-rf.readthedocs.io/ 中搜索，\n或者搜索历史相似Issue，\n或稍后在评论区@issue_bot_cn重新寻求AI答复。"
-              });
-            }
+            // 发布评论
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: `🤖 为了更好地帮助你解决问题，我们为你准备了 AI 提问提示词。你可以复制以下内容到任意 AI 助手中（如豆包、ChatGPT 等）获取专业解答：\n\n\`\`\`\n${prompt}\n\`\`\`${aiAgents}`
+            });
