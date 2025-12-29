@@ -111,34 +111,64 @@ jobs:
                 `Issue #${issue.number}：${issue.title}\n核心内容：${issue.body ? issue.body.substring(0, 300) : '无'}`
               ).join('\n\n');
 
-              // 调用Gemini API
+              // 调用Gemini API - 使用最新免费可用的模型
               console.log('开始调用Gemini API...');
               const geminiApiKey = process.env.GEMINI_API_KEY;
-              const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`;
-              const apiData = {
-                contents: [
-                  {
-                    parts: [
+
+              // 首先尝试最新的免费模型列表
+              const availableModels = [
+                'gemini-2.5-flash',
+                'gemini-1.5-flash',
+                'gemini-pro',
+                'gemini-1.0-pro'
+              ];
+
+              let aiReply = null;
+              let apiSuccess = false;
+              let usedModel = null;
+
+              for (const modelName of availableModels) {
+                try {
+                  const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiApiKey}`;
+                  console.log(`尝试使用模型: ${modelName}`);
+
+                  const apiData = {
+                    contents: [
                       {
-                        text: `你是该GitHub仓库的AI助手，基于以下历史Issue上下文和官方文档参考，简洁、准确地回复问题（仅用中文，避免冗余）：\n\n【官方文档参考】\nhttps://ais-bench-benchmark-rf.readthedocs.io/ \n\n【历史Issue上下文】\n${issueContext}\n\n【待回复的问题】\n${questionToAnswer}\n\n【回复要求】\n1. 只回答和仓库相关的问题，无关问题请提示“该问题与仓库无关，建议补充相关信息”；\n2. 上下文无相关信息时，提示“暂未找到相关解答，可参考仓库官方文档（https://ais-bench-benchmark-rf.readthedocs.io/）、README或联系维护者”；\n3. 回复控制在500字以内，语气友好。`
+                        parts: [
+                          {
+                            text: `你是该GitHub仓库的AI助手，基于以下历史Issue上下文和官方文档参考，简洁、准确地回复问题（仅用中文，避免冗余）：\n\n【官方文档参考】\nhttps://ais-bench-benchmark-rf.readthedocs.io/ \n\n【历史Issue上下文】\n${issueContext}\n\n【待回复的问题】\n${questionToAnswer}\n\n【回复要求】\n1. 只回答和仓库相关的问题，无关问题请提示"该问题与仓库无关，建议补充相关信息"；\n2. 上下文无相关信息时，提示"暂未找到相关解答，可参考仓库官方文档（https://ais-bench-benchmark-rf.readthedocs.io/）、README或联系维护者"；\n3. 回复控制在500字以内，语气友好。`
+                          }
+                        ]
                       }
-                    ]
+                    ],
+                    generationConfig: {
+                      temperature: 0.3,
+                      maxOutputTokens: 500
+                    }
+                  };
+
+                  const response = await postHttpsRequest(apiUrl, apiData);
+
+                  if (response.ok && response.data && response.data.candidates) {
+                    console.log(`成功使用模型 ${modelName} 调用API`);
+                    aiReply = response.data.candidates[0].content.parts[0].text.trim();
+                    apiSuccess = true;
+                    usedModel = modelName;
+                    break;
+                  } else {
+                    console.log(`模型 ${modelName} 调用失败:`, response.status, response.fullBody);
                   }
-                ],
-                generationConfig: {
-                  temperature: 0.3,
-                  maxOutputTokens: 500
+                } catch (modelError) {
+                  console.log(`模型 ${modelName} 调用异常:`, modelError.message);
                 }
-              };
-
-              const response = await postHttpsRequest(apiUrl, apiData);
-
-              if (!response.ok) {
-                throw new Error(`API调用失败: ${response.status} ${response.statusText}`);
               }
 
-              console.log('Gemini API调用成功');
-              const aiReply = response.data.candidates[0].content.parts[0].text.trim();
+              if (!apiSuccess) {
+                throw new Error('所有可用模型调用均失败');
+              }
+
+              console.log(`使用模型 ${usedModel} 生成了AI回复`);
 
               // 发布AI回复到Issue
               console.log('开始发布评论到Issue...');
