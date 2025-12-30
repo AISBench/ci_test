@@ -1,6 +1,6 @@
 import os
 import json
-import google.genai as genai
+import google.generativeai as genai
 from github import Github
 from github import Auth
 from dotenv import load_dotenv
@@ -9,18 +9,17 @@ import re
 # Load environment variables
 load_dotenv()
 
-# Set the API key for the genai client
-# The new google.genai package prefers GOOGLE_API_KEY, but we'll handle both
+# Configure the genai client with the API key
+# Handle both GOOGLE_API_KEY and GEMINI_API_KEY for compatibility
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 
-# Set the API key environment variable that genai package expects
-if GOOGLE_API_KEY:
-    os.environ['GOOGLE_API_KEY'] = GOOGLE_API_KEY
-elif GEMINI_API_KEY:
-    os.environ['GOOGLE_API_KEY'] = GEMINI_API_KEY
-else:
+# Set the API key that genai package expects
+api_key = GOOGLE_API_KEY or GEMINI_API_KEY
+if not api_key:
     raise ValueError("Either GOOGLE_API_KEY or GEMINI_API_KEY environment variable must be set")
+
+genai.configure(api_key=api_key)
 
 # Initialize GitHub client
 auth = Auth.Token(os.getenv('GITHUB_TOKEN'))
@@ -146,12 +145,11 @@ Please respond in {language} and ensure your response is clear and helpful.
 
 # Call Gemini API
 try:
-    # Create a client instance
-    client = genai.Client()
+    # Create a model instance
+    model = genai.GenerativeModel('gemini-2.5-flash')
 
-    # Generate content using the client
-    response = client.generate_content(
-        model='models/gemini-1.5-flash',
+    # Generate content using the model
+    response = model.generate_content(
         contents=prompt,
         generation_config={
             'temperature': 0.3,
