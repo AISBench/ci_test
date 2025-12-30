@@ -9,8 +9,18 @@ import re
 # Load environment variables
 load_dotenv()
 
-# Configure Gemini API
-genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
+# Set the API key for the genai client
+# The new google.genai package prefers GOOGLE_API_KEY, but we'll handle both
+GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
+
+# Set the API key environment variable that genai package expects
+if GOOGLE_API_KEY:
+    os.environ['GOOGLE_API_KEY'] = GOOGLE_API_KEY
+elif GEMINI_API_KEY:
+    os.environ['GOOGLE_API_KEY'] = GEMINI_API_KEY
+else:
+    raise ValueError("Either GOOGLE_API_KEY or GEMINI_API_KEY environment variable must be set")
 
 # Initialize GitHub client
 auth = Auth.Token(os.getenv('GITHUB_TOKEN'))
@@ -136,8 +146,15 @@ Please respond in {language} and ensure your response is clear and helpful.
 
 # Call Gemini API
 try:
-    # Use the new genai package with correct model name
-    model = genai.GenerativeModel('gemini-2.5-flash')
+    # Use the new genai package with correct model name and API key
+    model = genai.GenerativeModel(
+        'gemini-1.5-flash',
+        generation_config=genai.GenerationConfig(
+            temperature=0.3,
+            top_p=1.0,
+            top_k=1
+        )
+    )
     response = model.generate_content(prompt)
     comment_body = response.text
 
