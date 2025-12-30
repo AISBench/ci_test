@@ -3,6 +3,9 @@ on:
   issues:
     types: [opened, labeled]  # 仅监听 Issue 新建事件
 
+permissions:
+  issues: write
+
 jobs:
   auto-reply:
     runs-on: ubuntu-latest
@@ -44,13 +47,6 @@ jobs:
               replyContent = replyMap.documentation;
             } else {
               replyContent = `🌟欢迎给AISBench benchmark测评工具提issue，我们会尽快处理您的诉求~`;
-              // 发送默认回复
-              await github.rest.issues.createComment({
-                owner: owner,
-                repo: repo,
-                issue_number: issueNumber,
-                body: replyContent
-              });
             }
 
             // 有匹配标签时发送回复
