@@ -195,15 +195,15 @@ try:
             time.sleep(delay)
     if response is not None and hasattr(response, 'text'):
         if language == "zh":
-            comment_body = "🤖 基于AI机器人的issue内容完整性检查结果:\n\n" + response.text + "\n👉 如果想重新检查，在评论区@issue_checker即可。"
+            comment_body = "🤖 基于AI机器人的issue内容完整性检查结果:\n\n" + response.text + "\n\n👉 如果想重新检查，在评论区@issue_checker即可。"
         else:
-            comment_body = "🤖 issue content check result from AI robot:\n\n" + response.text + "\n👉 If you want to re-check, please comment @issue_checker."
+            comment_body = "🤖 issue content check result from AI robot:\n\n" + response.text + "\n\n👉 If you want to re-check, please comment @issue_checker."
     else:
         # Fallback message if API response is invalid
         if language == "zh":
-            comment_body = "🤖 基于AI机器人的issue内容完整性检查结果:\n\n❌ 检查过程中发生错误，无法完成检查。请稍后重试或联系仓库管理员。\n👉 如果想重新检查，在评论区@issue_checker即可。"
+            comment_body = "🤖 基于AI机器人的issue内容完整性检查结果:\n\n❌ 检查过程中发生错误，无法完成检查。请稍后重试或联系仓库管理员。\n\n👉 如果想重新检查，在评论区@issue_checker即可。"
         else:
-            comment_body = "🤖 issue content check result from AI robot:\n\n❌ An error occurred during the check. Please try again later or contact the repository administrator.\n👉 If you want to re-check, please comment @issue_checker."
+            comment_body = "🤖 issue content check result from AI robot:\n\n❌ An error occurred during the check. Please try again later or contact the repository administrator.\n\n👉 If you want to re-check, please comment @issue_checker."
 
     # Post comment to GitHub issue
     repo = github.get_repo(repo_full_name)
