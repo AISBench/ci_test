@@ -123,6 +123,7 @@ Required Sections ({language}):
 Please check if the issue contains all the required sections with sufficient information. For each section:
 1. Indicate if it's present and complete
 2. If not complete, specify what information is missing or needs to be补充 (in {language})
+3. Ensure the content is relevant to the section title and not meaningless text (e.g., placeholder text, repeated characters, unrelated content)
 
 Format your response as follows:
 
