@@ -55,11 +55,11 @@ else:
 
 # Determine the issue type based on title or labels
 issue_type = "bug"  # Default to bug
-if any(label in ['feature', 'Feature'] for label in issue_labels):
+if any(label in ['enhancement', 'feature', 'Feature'] for label in issue_labels):
     issue_type = "feature"
 elif any(label in ['doc', 'documentation', 'Documentation'] for label in issue_labels):
     issue_type = "documentation"
-elif any(label in ['consult', 'Consult'] for label in issue_labels):
+elif any(label in ['question', 'consult', 'Consult'] for label in issue_labels):
     issue_type = "consult"
 
 # Define required sections based on issue type
@@ -85,16 +85,16 @@ required_sections = {
         ]
     },
     "feature": {
-        "zh": ["功能描述", "实现思路", "预期效果"],
-        "en": ["Feature Description", "Implementation Ideas", "Expected Effects"]
+        "zh": ["问题/痛点描述", "建议方案", "预期价值"],
+        "en": ["Problem/Pain Point Description", "Proposed Solution", "Expected Value"]
     },
     "documentation": {
-        "zh": ["文档类型", "文档位置", "修改内容"],
-        "en": ["Documentation Type", "Documentation Location", "Modification Content"]
+        "zh": ["文档位置（可指定多个文档链接）", "当前内容描述", "修改建议"],
+        "en": ["Documentation Location (Multiple document links can be specified)", "Current Content Description", "Modification Suggestion"]
     },
     "consult": {
-        "zh": ["咨询问题", "相关背景", "已尝试的方法"],
-        "en": ["Consultation Question", "Related Background", "Methods Tried"]
+        "zh": ["疑问描述"],
+        "en": ["Inquiry Description"]
     }
 }
 
@@ -157,8 +157,10 @@ try:
             'top_k': 1
         }
     )
-
-    comment_body = response.text
+    if language == "zh":
+        comment_body = "🤖 基于AI机器人的issue内容内容完整性检查结果:\n\n" + response.text + "\n👉 如果想重新检查，在评论区@issue_checker即可。"
+    else:
+        comment_body = "🤖 issue content check result from AI robot:\n\n" + response.text + "\n👉 If you want to re-check, please comment @issue_checker."
 
     # Post comment to GitHub issue
     repo = github.get_repo(repo_full_name)
@@ -173,14 +175,26 @@ except Exception as e:
     # Post error comment
     repo = github.get_repo(repo_full_name)
     issue = repo.get_issue(number=issue_number)
-    error_comment = f"""
-    ## 问题内容检查失败
+    if language == "zh":
+        error_comment = f"""
+        ## 问题内容检查失败
 
-    在检查问题内容时发生错误：
-    ```
-    {str(e)}
-    ```
+        在检查问题内容时发生错误：
+        ```
+        {str(e)}
+        ```
 
-    请稍后重试或联系仓库管理员。
-    """
+        请稍后重试(评论区@issue_checker)或联系仓库管理员。
+        """
+    else:
+        error_comment = f"""
+        ## Issue Content Check Failed
+
+        An error occurred while checking the issue content:
+        ```
+        {str(e)}
+        ```
+
+        Please try again later(comment @issue_checker) or contact the repository administrator.
+        """
     issue.create_comment(error_comment)
