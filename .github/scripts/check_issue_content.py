@@ -234,8 +234,7 @@ try:
     if response is not None and hasattr(response, 'text'):
         # Patterns to match both Chinese and English status formats
         status_patterns = [
-            r'### 检查状态\s*\[(PASS|FAIL)\]',  # Chinese format
-            r'### Check Status\s*\[(PASS|FAIL)\]'  # English format
+            r'\[(PASS|FAIL)\]'  # Match only PASS or FAIL in square brackets
         ]
 
         for pattern in status_patterns:
@@ -243,7 +242,7 @@ try:
             if match:
                 check_status = match.group(1).upper()
                 break
-
+    print(f"check status: {check_status}")
     # Manage labels based on check status
     if check_status in ['PASS', 'FAIL']:
         # Get current labels
