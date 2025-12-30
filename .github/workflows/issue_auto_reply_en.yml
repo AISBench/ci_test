@@ -35,11 +35,11 @@ jobs:
             const replyMap = {
               bug: `🌟 Welcome to file an issue for the AISBench benchmark tool. You can try the following ways to find solutions to your issue:
               1. Search for similar issues in the [tool's historical issues](https://github.com/AISBench/benchmark/issues/) using key log fragments or keywords
-              2. Search in the [official documentation](https://ais-bench-benchmark-rf.readthedocs.io/) search bar using key log fragments or keywords
+              2. Search in the [official documentation](https://ais-bench-benchmark-rf.readthedocs.io/en/latest/) search bar using key log fragments or keywords
               3. Seek help from repository maintainers (mention @SJTUyh in the issue comment)`,
               question: `🌟 Welcome to file an issue for the AISBench benchmark tool. You can try the following ways to find solutions to your issue:
               1. Search for similar issues in the [tool's historical issues](https://github.com/AISBench/benchmark/issues/) using key log fragments or keywords
-              2. Search in the [official documentation](https://ais-bench-benchmark-rf.readthedocs.io/) search bar using key log fragments or keywords
+              2. Search in the [official documentation](https://ais-bench-benchmark-rf.readthedocs.io/en/latest/) search bar using key log fragments or keywords
               3. Seek help from repository maintainers (mention @SJTUyh in the issue comment)`,
               enhancement: `🌟 Welcome to file a new feature request for the AISBench benchmark tool. Please ensure your issue description is clear so that repository maintainers can accurately understand your request. Maintainers will typically respond to new feature requests within 3 days.`,
               documentation: `🙏 Thank you for finding documentation issues in the AISBench benchmark tool. Please ensure your issue description clearly explains the documentation problem so we can fix it faster. Maintainers will typically respond to documentation issues within 1 day.`
@@ -70,4 +70,25 @@ jobs:
               console.log(`Auto-reply sent for Issue #${issueNumber} (labels: ${labels.join(', ')})`);
             } else {
               console.log(`Issue #${issueNumber} has no matching labels for auto-reply`);
+            }
+
+            // Assign issue based on labels
+            if (labels.includes('enhancement')) {
+              // When label is enhancement, assign to Keithwwa and SJTUyh
+              await github.rest.issues.update({
+                owner: owner,
+                repo: repo,
+                issue_number: issueNumber,
+                assignees: ['Keithwwa', 'SJTUyh']
+              });
+              console.log(`Assigned Issue #${issueNumber} to Keithwwa and SJTUyh (enhancement label)`);
+            } else if (labels.includes('documentation')) {
+              // When label is documentation, assign to SJTUyh
+              await github.rest.issues.update({
+                owner: owner,
+                repo: repo,
+                issue_number: issueNumber,
+                assignees: ['SJTUyh']
+              });
+              console.log(`Assigned Issue #${issueNumber} to SJTUyh (documentation label)`);
             }
