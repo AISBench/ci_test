@@ -61,27 +61,43 @@ jobs:
               }
             }
 
-            // 如果没有勾选任何类型，跳过
-            if (selectedTypes.length === 0) {
-              console.log('No PR type selected, skipping');
+            // 获取所有可能的PR类型标签
+            const allPrTypeLabels = Object.values(typeToLabel);
+
+            // 计算需要添加的标签（选中但不存在）
+            const labelsToAdd = selectedTypes.filter(label => !currentLabels.includes(label));
+
+            // 计算需要删除的标签（存在但未选中，且是PR类型标签）
+            const labelsToRemove = currentLabels.filter(label =>
+              allPrTypeLabels.includes(label) && !selectedTypes.includes(label)
+            );
+
+            // 如果没有需要添加或删除的标签，跳过
+            if (labelsToAdd.length === 0 && labelsToRemove.length === 0) {
+              console.log('No label changes needed, skipping');
               return;
             }
 
-            // 计算需要添加的标签（排除已存在的）
-            const labelsToAdd = selectedTypes.filter(label => !currentLabels.includes(label));
-
-            // 如果没有新标签需要添加，跳过
-            if (labelsToAdd.length === 0) {
-              console.log('All selected labels already exist, skipping');
-              return;
+            // 删除不再需要的标签
+            for (const label of labelsToRemove) {
+              await github.rest.issues.removeLabel({
+                owner: owner,
+                repo: repo,
+                issue_number: prNumber,
+                name: label
+              });
+              console.log(`Removed label: ${label}`);
             }
 
             // 添加新标签到PR
-            await github.rest.issues.addLabels({
-              owner: owner,
-              repo: repo,
-              issue_number: prNumber,
-              labels: labelsToAdd
-            });
+            if (labelsToAdd.length > 0) {
+              await github.rest.issues.addLabels({
+                owner: owner,
+                repo: repo,
+                issue_number: prNumber,
+                labels: labelsToAdd
+              });
+              console.log(`Added labels: ${labelsToAdd.join(', ')}`);
+            }
 
-            console.log(`Successfully labeled PR #${prNumber} with: ${labelsToAdd.join(', ')}`);
+            console.log(`Successfully updated labels for PR #${prNumber}`);
