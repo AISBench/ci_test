@@ -26,11 +26,9 @@ jobs:
   pr-quality-gate:
     name: PR Quality Gate
     runs-on: ubuntu-latest
-    # 仅处理来自本仓库的 PR（避免 fork PR 在受限 token 下写入失败带来的噪声）；
-    # pull_request_review / pull_request_review_comment 事件中 context.payload.pull_request 同样存在 head.repo。
-    if: >
-      github.event_name == 'workflow_dispatch' ||
-      github.event.pull_request.head.repo.full_name == github.repository
+    # 注意：本工作流的主要目的就是拦截"从 fork 仓库往主仓提的 PR"，
+    # 因此不要用 if 把 fork PR 过滤掉；无论 PR 来自哪，都要执行检查。
+    # 阻断原理：检查不通过时调用 core.setFailed()，配合分支保护中的 Required status check 实现拦截。
     steps:
       - name: 确保失败标签存在（红色）
         uses: actions/github-script@v7
@@ -226,16 +224,29 @@ jobs:
                 });
                 console.log(`已移除标签: ${label}`);
               } catch (e) {
-                if (e.status !== 404) throw e;
-                console.log(`标签 ${label} 不存在，跳过移除`);
+                // 404 = 标签本来就不存在，可忽略；403 = fork PR 写权限受限，也可忽略；
+                // 这两种情况都不应让 Job 失败（status check 是否失败只取决于检查项本身）。
+                if (e.status === 404) {
+                  console.log(`标签 ${label} 不存在，跳过移除`);
+                } else if (e.status === 403) {
+                  console.log(`移除标签 ${label} 失败（fork PR 权限受限，可忽略）: ${e.message}`);
+                } else {
+                  throw e;
+                }
               }
             }
 
             if (labelsToAdd.length > 0) {
-              await github.rest.issues.addLabels({
-                owner, repo, issue_number: prNumber, labels: labelsToAdd
-              });
-              console.log(`已添加标签: ${labelsToAdd.join(', ')}`);
+              try {
+                await github.rest.issues.addLabels({
+                  owner, repo, issue_number: prNumber, labels: labelsToAdd
+                });
+                console.log(`已添加标签: ${labelsToAdd.join(', ')}`);
+              } catch (e) {
+                // fork PR 的 GITHUB_TOKEN 通常为只读，写标签会 403；
+                // 这种情况下静默失败即可——status check 本身仍会按规则失败，照样能阻断合入。
+                console.log(`添加标签失败（可能为 fork PR 权限受限，可忽略）: ${e.message}`);
+              }
             }
 
             // ===== 输出汇总 + 决定是否失败 =====
