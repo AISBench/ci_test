@@ -1,8 +1,9 @@
 name: PR Quality Check (PR 合入质量看护)
 
-# 触发时机（仅两项）：
+# 触发时机：
 # - pull_request_target.opened        ：PR 新建时触发
 # - pull_request_target.synchronize   ：PR 中代码内容出现变更（新 commit 推送）时触发
+# - issue_comment.created             ：在 PR 评论中输入 /pr_check（可附说明）手动触发重检
 # - workflow_dispatch                 ：管理员可手动触发以便回溯校验（非自动触发）
 #
 # 阻断合入的原理（请管理员在仓库 Settings -> Branches 中配置）：
@@ -15,6 +16,8 @@ on:
     types:
       - opened       # PR 创建
       - synchronize  # PR 中代码内容出现变更（push 新 commit）
+  issue_comment:
+    types: [created]  # 在 PR 评论中输入 /pr_check 触发手动重检
   workflow_dispatch:
 
 permissions:
@@ -29,6 +32,19 @@ jobs:
     # 注意：本工作流的主要目的就是拦截"从 fork 仓库往主仓提的 PR"，
     # 因此不要用 if 把 fork PR 过滤掉；无论 PR 来自哪，都要执行检查。
     # 阻断原理：检查不通过时调用 core.setFailed()，配合分支保护中的 Required status check 实现拦截。
+    #
+    # 仅 issue_comment 触发时按下面规则过滤（其它事件不受此 if 影响）：
+    #   1) 评论必须挂在 PR 下（不是普通 Issue）
+    #   2) 评论正文必须为 /pr_check 或以 "/pr_check " 开头（允许附加参数/说明）
+    if: |
+      github.event_name != 'issue_comment' ||
+      (
+        github.event.issue.pull_request &&
+        (
+          github.event.comment.body == '/pr_check' ||
+          startsWith(github.event.comment.body, '/pr_check ')
+        )
+      )
     steps:
       - name: 确保失败标签存在（红色）
         uses: actions/github-script@v7
@@ -66,12 +82,21 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const pr = context.payload.pull_request;
-            const prNumber = pr.number;
+            // 兼容三种事件来源：pull_request_target / issue_comment / workflow_dispatch
+            // - pull_request_target：payload 含 pull_request
+            // - issue_comment       ：payload 含 issue（PR 评论时 issue.number 即为 PR 号）
+            // - workflow_dispatch   ：payload 含 pull_request（GitHub 自动注入）
+            const prNumber = context.eventName === 'issue_comment'
+              ? context.payload.issue.number
+              : context.payload.pull_request.number;
             const owner = context.repo.owner;
             const repo = context.repo.repo;
+            const triggerSource = context.eventName === 'issue_comment'
+              ? 'PR 评论 /pr_check'
+              : (context.eventName === 'workflow_dispatch' ? '手动 workflow_dispatch' : context.eventName);
 
             console.log(`开始对 PR #${prNumber} 进行合入质量检查...`);
+            console.log(`触发来源: ${triggerSource}`);
 
             // 使用 GraphQL 一次性获取全部所需数据
             const query = `
