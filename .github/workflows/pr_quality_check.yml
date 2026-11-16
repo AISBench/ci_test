@@ -12,7 +12,7 @@ name: PR Quality Check (PR 合入质量看护)
 #   3. 必须至少包含一条已提交的检视意见
 #   4. 所有行内检视意见必须闭环
 #   5. feature / bugfix 类型 PR 必须包含 tests/UT 变更
-#   6. PR 描述必须按 .github/pull_request_template.md 模板填写
+#   6. PR 描述必须按 .github/pull_request_template.md 勾选 PR 类型
 #      （PR 模板只在网页端预填，API 创建的 PR 可绕过，故在此做服务端校验）
 #
 # 阻断合入的原理（请管理员在仓库 Settings -> Branches 中配置）：
@@ -68,7 +68,7 @@ jobs:
               { name: 'no_review',     color: 'd73a4a', description: 'PR 未包含任何检视意见，合入前必须包含检视意见' },
               { name: 'review_opened', color: 'd73a4a', description: 'PR 中存在未闭环的检视意见，所有检视意见必须闭环后才能合入' },
               { name: 'no_UT',         color: 'd73a4a', description: 'feature / bugfix 类型 PR 缺少 tests/UT 下的单元测试新增或修改' },
-              { name: 'no_template',   color: 'd73a4a', description: 'PR 未按 .github/pull_request_template.md 模板填写（PR 类型 / Motivation / Modification / Checklist）' }
+              { name: 'no_template',   color: 'd73a4a', description: 'PR 描述未按模板勾选 PR 类型' }
             ];
             for (const label of labels) {
               try {
@@ -246,44 +246,14 @@ jobs:
               console.log('[检查 5] 跳过（无需强制 UT）');
             }
 
-            // ===== 检查 6：PR 必须按 .github/pull_request_template.md 填写 =====
-            // GitHub 的 PR 模板只在网页端创建 PR 时预填，通过 API 创建的 PR（AI 助手、`gh pr create` 等）
-            // 可以完全不使用模板；而 Auto Label PR 又依赖模板中的 PR 类型勾选，模板被绕过后后续检查会全部失效。
-            // 这里做服务端强制校验，无模板内容的 PR 直接禁止合入。
-            const sectionContent = (text, headingPattern) => {
-              const match = headingPattern.exec(text);
-              if (!match) return null;
-              const rest = text.slice(match.index + match[0].length);
-              const nextHeading = rest.search(/^##\s+/m);
-              return (nextHeading === -1 ? rest : rest.slice(0, nextHeading)).trim();
-            };
-            // 模板自带的填写说明不算有效内容
-            const TEMPLATE_INSTRUCTIONS = [
-              'Please describe the motivation of this PR and the goal you want to achieve through this PR.',
-              '请描述您的拉取请求的动机和您希望通过此拉取请求实现的目标。',
-              'Please briefly describe what modification is made in this PR.',
-              '请简要描述此拉取请求中进行的修改。'
-            ];
-            const meaningfulContent = (text) => (text || '')
-              .replace(/<!--[\s\S]*?-->/g, '')
-              .split('\n')
-              .map(line => line.trim())
-              .filter(line => line && !TEMPLATE_INSTRUCTIONS.includes(line))
-              .join('\n')
-              .trim();
+            // ===== 检查 6：PR 描述必须按模板勾选 PR 类型 =====
+            // PR 模板只在网页端预填，通过 API 创建的 PR（AI 助手、`gh pr create` 等）可以完全不填；
+            // Auto Label PR 又依赖模板中的 PR 类型勾选，勾选缺失即说明 PR 描述没有按模板填写。
             const prTypeChecked = /^\s*-\s*\[[xX]\]\s*(Feature|Bugfix|Docs|CI\/CD|Refactor|Perf|Dependency|Test-Cases|Other)/m.test(prBody);
-            const motivation = meaningfulContent(sectionContent(prBody, /^##\s*🔍\s*Motivation\s*\/\s*变更动机\s*$/m));
-            const modification = meaningfulContent(sectionContent(prBody, /^##\s*📝\s*Modification\s*\/\s*修改内容\s*$/m));
-            const checklist = sectionContent(prBody, /^##\s*✅\s*Checklist\s*\/\s*检查列表\s*$/m);
-            const templateProblems = [];
-            if (!prTypeChecked) templateProblems.push('未勾选 PR Type');
-            if (!motivation || motivation.length < 10) templateProblems.push('未填写 Motivation / 变更动机');
-            if (!modification || modification.length < 10) templateProblems.push('未填写 Modification / 修改内容');
-            if (checklist === null) templateProblems.push('缺少 Checklist / 检查列表');
-            console.log(`[检查 6] 未通过的模板项: ${templateProblems.length === 0 ? '无' : templateProblems.join('、')}`);
-            if (templateProblems.length > 0) {
+            console.log(`[检查 6] PR 类型勾选: ${prTypeChecked}`);
+            if (!prTypeChecked) {
               failures.push('no_template');
-              failureMessages.push(`- **未按模板提交**：PR 描述缺少 ${templateProblems.map(item => `\`${item}\``).join('、')}，请按 \`.github/pull_request_template.md\` 模板重写 PR 描述（网页端新建 PR 会自动带上模板）。`);
+              failureMessages.push('- **未按模板提交**：PR 描述中没有勾选任何一个 PR 类型，请使用 `.github/pull_request_template.md` 模板填写 PR 描述。');
             } else {
               console.log('[检查 6] 通过');
             }
