@@ -7,9 +7,12 @@ labels and no required sections. `blank_issues_enabled: false` has the same
 limitation, it only removes the "Open a blank issue" entry from the web UI.
 
 This script closes that gap on the server side. It is triggered on the
-`issues: [opened, edited]` event, derives the required sections from the
-template that matches the issue title, and labels + comments on the issue when
-the body does not conform.
+`issues: [opened, edited, reopened]` event, derives the required sections from
+the template that matches the issue title, and when the body does not conform:
+labels the issue, leaves a guidance comment and closes the issue immediately
+(the closest thing to "blocking the issue at creation time" that GitHub allows,
+since there is no pre-create hook for issues). Editing the body so that it
+conforms reopens the issue automatically.
 """
 
 import json
@@ -24,6 +27,8 @@ COMMENT_MARKER = '<!-- issue-template-check -->'
 LABEL_NAME = 'template_missing'
 LABEL_COLOR = 'd73a4a'
 LABEL_DESCRIPTION = 'Issue 未按模板填写，缺少模板要求的必填内容'
+# 维护者 / 协作者创建的 Issue 可能是内部讨论，不做自动关闭
+AUTO_CLOSE_EXEMPT_ASSOCIATIONS = {'OWNER', 'MEMBER', 'COLLABORATOR'}
 
 TEMPLATE_DIR = os.path.normpath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'ISSUE_TEMPLATE')
@@ -139,7 +144,7 @@ def detect_language(text):
     return 'zh' if re.search(r'[\u4e00-\u9fa5]', text or '') else 'en'
 
 
-def build_comment(repo_full_name, language, template, missing, candidates):
+def build_comment(repo_full_name, language, template, missing, candidates, auto_close=False):
     new_issue_url = 'https://github.com/{}/issues/new?template={}'.format(
         repo_full_name, template['file'] if template else ''
     )
@@ -163,6 +168,11 @@ def build_comment(repo_full_name, language, template, missing, candidates):
             '请补充上述内容（标题前缀需与模板一致，如 `[Bug] `、`[疑问] `），'
             '直接编辑 Issue 正文即可自动重新检查。',
         ]
+        if auto_close:
+            lines += [
+                '',
+                '> 本 Issue 已被自动关闭：补齐模板要求的内容并保存后，本 Issue 会自动重新打开。',
+            ]
         return '\n'.join(lines)
 
     lines = [
@@ -185,6 +195,12 @@ def build_comment(repo_full_name, language, template, missing, candidates):
         'Please fill in the fields above (the title prefix must match the template, e.g. `[Bug] `, '
         '`[Question] `). Editing the issue body triggers a re-check automatically.',
     ]
+    if auto_close:
+        lines += [
+            '',
+            '> This issue has been closed automatically. It will be reopened automatically once the '
+            'required template fields are filled in.',
+        ]
     return '\n'.join(lines)
 
 
@@ -256,18 +272,30 @@ def main():
 
     labels = {label.name for label in issue.labels}
     if missing:
+        auto_close = (
+            issue.state == 'open'
+            and issue_payload.get('author_association') not in AUTO_CLOSE_EXEMPT_ASSOCIATIONS
+        )
         ensure_label(repo)
         upsert_comment(issue, build_comment(
-            repo_full_name, language, best_template, missing, templates
+            repo_full_name, language, best_template, missing, templates, auto_close
         ), bot_login)
         if LABEL_NAME not in labels:
             issue.add_to_labels(LABEL_NAME)
+        if auto_close:
+            issue.edit(state='closed', state_reason='not_planned')
+            print('Closed the issue that does not follow the template.')
         print('Template check failed, missing: {}'.format('; '.join(missing)))
         sys.exit(1)
 
     remove_comment(issue, bot_login)
     if LABEL_NAME in labels:
         issue.remove_from_labels(LABEL_NAME)
+    # 只重开由本脚本自动关闭的 Issue，避免影响人工关闭的 Issue
+    closed_by = issue.closed_by
+    if issue.state == 'closed' and closed_by is not None and closed_by.login == bot_login:
+        issue.edit(state='open')
+        print('Reopened the issue after it followed the template again.')
     print('Template check passed.')
 
 

@@ -8,11 +8,13 @@ name: Issue Template Check
 #
 # 行为：
 #   - 依据 Issue 标题前缀匹配对应模板，校验模板中所有 required 字段是否填写；
-#   - 不通过时给 Issue 打上 template_missing 标签并评论提示，同时让本检查失败；
-#   - 通过时自动移除标签和提示评论（作者编辑正文后即可重新检查）。
+#   - 不通过时：打上 template_missing 标签、评论提示，并立即自动关闭 Issue
+#     （GitHub 没有 Issue 创建前的服务端钩子，自动关闭是"提 Issue 阶段"唯一可落地的拦截手段）；
+#   - 补齐模板内容后（issues.edited）自动重新打开 Issue 并移除标签与提示评论；
+#   - OWNER / MEMBER / COLLABORATOR 创建的 Issue 仅提示，不自动关闭。
 on:
   issues:
-    types: [opened, edited]
+    types: [opened, edited, reopened]
 
 permissions:
   issues: write
