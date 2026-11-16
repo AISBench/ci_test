@@ -1,0 +1,42 @@
+name: Issue Template Check
+
+# 背景：
+#   .github/ISSUE_TEMPLATE/*.yml 是 GitHub 的 Issue 表单，只在网页端 "New issue" 时生效；
+#   config.yml 中的 blank_issues_enabled: false 也只是隐藏空白 Issue 入口。
+#   通过 API 创建的 Issue（AI 助手、gh issue create、脚本等）不会被 GitHub 校验，
+#   因此需要在本工作流中做服务端校验，避免绕过 Issue 模板。
+#
+# 行为：
+#   - 依据 Issue 标题前缀匹配对应模板，校验模板中所有 required 字段是否填写；
+#   - 不通过时给 Issue 打上 template_missing 标签并评论提示，同时让本检查失败；
+#   - 通过时自动移除标签和提示评论（作者编辑正文后即可重新检查）。
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  check-issue-template:
+    name: Issue Template Gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install PyGithub PyYAML
+
+      - name: Run issue template check
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python .github/scripts/check_issue_template.py
